@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Clinic Notice Poster Generator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=block" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Poppins',sans-serif;background:#f0fdf4;padding:24px;display:flex;flex-direction:column;align-items:center;min-height:100vh}
+    h1{font-size:24px;font-weight:800;color:#14532d;margin-bottom:4px;text-align:center}
+    .subtitle{font-size:13px;color:#16a34a;margin-bottom:24px;text-align:center}
+    .layout{display:flex;gap:28px;align-items:flex-start;justify-content:center;width:100%;max-width:980px}
+    .cp{background:white;border:1px solid #d1fae5;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,.06);padding:22px;width:290px;flex-shrink:0;position:sticky;top:20px}
+    .cp h2{font-size:16px;font-weight:700;color:#166534;margin-bottom:14px}
+    label{font-size:11px;font-weight:600;color:#166534;display:block;margin:10px 0 3px}
+    input{border:2px solid #d1fae5;border-radius:8px;padding:7px 11px;font-size:13px;width:100%;outline:none;font-family:'Poppins',sans-serif;transition:border-color .2s}
+    input:focus{border-color:#22c55e}
+    .btn{border:none;cursor:pointer;font-family:'Poppins',sans-serif;font-weight:700;border-radius:11px;padding:10px 14px;font-size:13px;transition:transform .15s,box-shadow .15s;width:100%;margin-top:10px}
+    .btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.15)}
+    .btn-green{background:#166534;color:#fff}
+    .btn-row{display:flex;gap:8px;margin-top:8px}
+    .btn-row .btn{margin-top:0}
+    .btn-blue{background:#2563eb;color:#fff}
+    .btn-red{background:#dc2626;color:#fff}
+    #status{text-align:center;font-size:12px;color:#166534;font-weight:600;margin-top:8px;min-height:16px}
+    .canvas-wrap{flex:1;display:flex;justify-content:center;align-items:flex-start}
+    canvas{border-radius:20px;box-shadow:0 0 0 6px #dcfce7,0 20px 60px rgba(0,0,0,.12);max-width:100%;display:block}
+    @media(max-width:780px){.layout{flex-direction:column;align-items:center}.cp{width:100%;max-width:600px;position:static}}
+  </style>
+</head>
+<body>
+<h1>🏥 Clinic Notice Poster Generator</h1>
+<p class="subtitle">Fill in the details, preview the poster, then download as PNG or PDF</p>
+<div class="layout">
+  <div class="cp">
+    <h2>⚙️ Poster Settings</h2>
+    <label>Clinic Name</label>
+    <input id="clinicName" type="text" value="Samridhi Homeeopathic Clinic"/>
+    <label>Doctor's Name (optional)</label>
+    <input id="doctorName" type="text" placeholder="e.g. Dr. Sharma"/>
+    <label>Absence Start Date</label>
+    <input id="startDate" type="date" value="2026-03-11"/>
+    <label>Absence End Date</label>
+    <input id="endDate" type="date" value="2026-03-16"/>
+    <label>Medicine Collection Deadline</label>
+    <input id="medicineDate" type="date" value="2026-03-10"/>
+    <label>Clinic Resumes From</label>
+    <input id="resumeDate" type="date" value="2026-03-17"/>
+    <label>Extra Note (optional)</label>
+    <input id="extraNote" type="text" placeholder="e.g. For emergencies call: 9999999999"/>
+    <button class="btn btn-green" onclick="render()">↻ Update Poster</button>
+    <div class="btn-row">
+      <button class="btn btn-blue" onclick="downloadPNG()">⬇ PNG</button>
+      <button class="btn btn-red"  onclick="downloadPDF()">⬇ PDF</button>
+    </div>
+    <div id="status"></div>
+  </div>
+  <div class="canvas-wrap">
+    <canvas id="c"></canvas>
+  </div>
+</div>
+
+<script>
+const DPR = 2;
+const W = 620, PAD = 44;
+const G9='#14532d',G8='#166534',G7='#15803d',G3='#86efac',G2='#bbf7d0',G1='#dcfce7',G0='#f0fdf4';
+const RED='#dc2626';
+const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function sfx(n){const v=n%100;return(['th','st','nd','rd'])[(v-20)%10]||(['th','st','nd','rd'])[v]||'th'}
+function pd(s){return new Date(s+'T00:00:00')}
+function range(s,e){const a=[],c=pd(s),en=pd(e);while(c<=en){a.push(new Date(c));c.setDate(c.getDate()+1)}return a}
+function fmtShort(s){const d=pd(s);return`${d.getDate()} ${MONTHS[d.getMonth()]}`}
+function fmtResume(s){const d=pd(s);return`${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} (${DAYS[d.getDay()]})`}
+
+// rounded rect path helper
+function rr(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+
+let rendering = false;
+async function render(){
+  if(rendering) return;
+  rendering = true;
+  await document.fonts.ready;
+
+  const clinicName = document.getElementById('clinicName').value.trim()||'Clinic';
+  const doctorName = document.getElementById('doctorName').value.trim();
+  const startDate  = document.getElementById('startDate').value;
+  const endDate    = document.getElementById('endDate').value;
+  const medDate    = document.getElementById('medicineDate').value;
+  const resumeD    = document.getElementById('resumeDate').value;
+  const extra      = document.getElementById('extraNote').value.trim();
+
+  const dates = (startDate&&endDate) ? range(startDate,endDate) : [];
+  const cols  = dates.length || 6;
+
+  // ── Estimate canvas height ──
+  const calH = 44+62+54+38;
+  let H = PAD + 76 + 16 + 80 + 8 + 28 + 22 + 52 + 18 + calH + 18 + 52 + 18 + 82 + (extra?32:0) + 12 + 36 + PAD;
+
+  const canvas = document.getElementById('c');
+  canvas.width  = W*DPR; canvas.height = H*DPR;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(DPR,DPR);
+
+  // ── BACKGROUND ──
+  const bg=ctx.createLinearGradient(0,0,W,H);
+  bg.addColorStop(0,'#f9fef5');bg.addColorStop(.45,'#edf7e4');bg.addColorStop(1,'#f5fcee');
+  ctx.fillStyle=bg; rr(ctx,0,0,W,H,20); ctx.fill();
+
+  // Border
+  ctx.strokeStyle=G3; ctx.lineWidth=3;
+  rr(ctx,1.5,1.5,W-3,H-3,19); ctx.stroke();
+
+  // ── BLOBS ──
+  ctx.save(); ctx.globalAlpha=.07; ctx.fillStyle='#22c55e';
+  ctx.beginPath(); ctx.arc(-50,-50,200,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(W+40,H+30,165,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // ── CORNER LEAVES ── (drawn OUTSIDE poster clip so they peek over edges)
+  function drawLeaf(tx,ty,rot,flipX){
+    ctx.save();
+    ctx.globalAlpha=0.22;
+    ctx.translate(tx,ty);
+    ctx.rotate(rot);
+    if(flipX) ctx.scale(-1,1);
+    const s=2.6;
+    // body
+    ctx.beginPath();
+    ctx.moveTo(11*s,20*s);
+    ctx.bezierCurveTo(7.5*s,20*s, 3*s,16.5*s, 3*s,12*s);
+    ctx.bezierCurveTo(3*s,7.5*s, 6.5*s,3.5*s, 9.8*s,6.1*s);
+    ctx.bezierCurveTo(12*s,5*s, 14.5*s,4.2*s, 19*s,2*s);
+    ctx.bezierCurveTo(20.5*s,4.5*s, 21*s,7*s, 21*s,10*s);
+    ctx.bezierCurveTo(21*s,15.5*s, 16.2*s,20*s, 11*s,20*s);
+    ctx.closePath();
+    ctx.fillStyle='#dcfce7'; ctx.fill();
+    ctx.strokeStyle='#22c55e'; ctx.lineWidth=1.6; ctx.stroke();
+    // vine
+    ctx.beginPath();
+    ctx.moveTo(2*s,21*s);
+    ctx.bezierCurveTo(2*s,18*s, 4*s,16*s, 7*s,15*s);
+    ctx.bezierCurveTo(9.5*s,14.5*s, 12*s,13*s, 13*s,12*s);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // Offset so leaf body peeks into corners
+  drawLeaf(8, 8, -30*Math.PI/180, false);          // top-left
+  drawLeaf(W-8, 8, 30*Math.PI/180, true);           // top-right
+  drawLeaf(8, H-8, 30*Math.PI/180, false);          // bottom-left
+  drawLeaf(W-8, H-8, -30*Math.PI/180, true);        // bottom-right
+
+  let y = PAD;
+
+  // ── HEADER ──
+  const LR=28, LX=PAD, LY=y;
+  ctx.fillStyle='white'; ctx.strokeStyle=G3; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.arc(LX+LR,LY+LR,LR,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  // Plus icon
+  ctx.fillStyle=G8;
+  ctx.fillRect(LX+LR-11,LY+LR-4,22,8);
+  ctx.fillRect(LX+LR-4,LY+LR-11,8,22);
+
+  // Clinic name
+  const NX=LX+LR*2+14, NY=LY+LR;
+  ctx.fillStyle=G9; ctx.font=`900 21px 'Poppins',sans-serif`;
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText(clinicName, NX, NY);
+  const nm=ctx.measureText(clinicName);
+  ctx.strokeStyle=G9; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(NX,NY+13); ctx.lineTo(NX+nm.width,NY+13); ctx.stroke();
+
+  y += 76;
+
+  // ── NOTICE ──
+  ctx.textAlign='center'; ctx.fillStyle=RED;
+  ctx.font=`900 66px 'Poppins',sans-serif`;
+  ctx.textBaseline='alphabetic';
+  ctx.fillText('NOTICE', W/2, y+64);
+  // underline below baseline
+  ctx.fillStyle=RED;
+  rr(ctx, W/2-125, y+72, 250, 5, 3); ctx.fill();
+
+  y += 92;
+
+  // ── SUBTITLE ──
+  const docPart = doctorName || 'Dr.';
+  const sub = [
+    {t: docPart+' will ', c:'#1f2937', w:'700'},
+    {t:'NOT', c:RED, w:'900'},
+    {t:' be ', c:'#1f2937', w:'700'},
+    {t:'AVAILABLE', c:'#1f2937', w:'900'},
+    {t:' at the Clinic', c:'#1f2937', w:'700'},
+  ];
+  // measure total width
+  let totalW=0;
+  sub.forEach(p=>{ctx.font=`${p.w} 17px 'Poppins',sans-serif`;totalW+=ctx.measureText(p.t).width;});
+  let sx=W/2-totalW/2;
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  sub.forEach(p=>{
+    ctx.font=`${p.w} 17px 'Poppins',sans-serif`;
+    ctx.fillStyle=p.c;
+    ctx.fillText(p.t,sx,y+10);
+    sx+=ctx.measureText(p.t).width;
+  });
+
+  y += 34;
+
+  // ── DATE BANNER ──
+  const BX=PAD, BW=W-PAD*2, BH=52;
+  const bgrad=ctx.createLinearGradient(BX,y,BX+BW,y+BH);
+  bgrad.addColorStop(0,G8); bgrad.addColorStop(1,G7);
+  ctx.fillStyle=bgrad; rr(ctx,BX,y,BW,BH,12); ctx.fill();
+
+  // calendar icon
+  const ICX=BX+20, ICY=y+BH/2;
+  ctx.strokeStyle='white'; ctx.lineWidth=1.8; ctx.fillStyle='transparent';
+  rr(ctx,ICX-9,ICY-10,18,18,2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ICX-4,ICY-3); ctx.lineTo(ICX+4,ICY+5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ICX+4,ICY-3); ctx.lineTo(ICX-4,ICY+5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ICX-4,ICY-10); ctx.lineTo(ICX-4,ICY-15); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ICX+4,ICY-10); ctx.lineTo(ICX+4,ICY-15); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ICX-9,ICY-5); ctx.lineTo(ICX+9,ICY-5); ctx.stroke();
+
+  if(startDate&&endDate){
+    const s=pd(startDate), e=pd(endDate);
+    const sD=s.getDate(), eD=e.getDate();
+    const sM=MONTHS[s.getMonth()].toUpperCase(), eM=MONTHS[e.getMonth()].toUpperCase();
+    const yr=e.getFullYear();
+    // Build parts array
+    const parts=[
+      {t:`FROM ${sD}`, big:true},
+      {t:sfx(sD), big:false},
+      {t:` ${sM} TO ${eD}`, big:true},
+      {t:sfx(eD), big:false},
+      {t:` ${eM} ${yr}`, big:true},
+    ];
+    // measure
+    let tw2=0;
+    parts.forEach(p=>{
+      ctx.font=p.big?`700 15px 'Poppins',sans-serif`:`700 10px 'Poppins',sans-serif`;
+      tw2+=ctx.measureText(p.t).width;
+    });
+    let tx2=BX+(BW-tw2)/2+14;
+    ctx.fillStyle='white'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    parts.forEach(p=>{
+      ctx.font=p.big?`700 15px 'Poppins',sans-serif`:`700 10px 'Poppins',sans-serif`;
+      ctx.fillText(p.t, tx2, p.big ? y+BH/2 : y+BH/2-5);
+      tx2+=ctx.measureText(p.t).width;
+    });
+  }
+
+  y += BH+18;
+
+  // ── CALENDAR ──
+  if(dates.length){
+    const CX=PAD, CW=W-PAD*2, colW=CW/cols;
+    const HH=44, DH=62, XH=54, BotH=38, totalCH=HH+DH+XH+BotH;
+
+    // outer border
+    ctx.strokeStyle=G2; ctx.lineWidth=2; rr(ctx,CX,y,CW,totalCH,12); ctx.stroke();
+
+    // clip to rounded rect
+    ctx.save(); rr(ctx,CX,y,CW,totalCH,12); ctx.clip();
+
+    // head gradient
+    const hg=ctx.createLinearGradient(CX,y,CX+CW,y+HH);
+    hg.addColorStop(0,G8); hg.addColorStop(1,G7);
+    ctx.fillStyle=hg; ctx.fillRect(CX,y,CW,HH);
+    // dates row
+    ctx.fillStyle='white'; ctx.fillRect(CX,y+HH,CW,DH);
+    // x row
+    ctx.fillStyle='#f9fafb'; ctx.fillRect(CX,y+HH+DH,CW,XH);
+    // bottom row
+    ctx.fillStyle='white'; ctx.fillRect(CX,y+HH+DH+XH,CW,BotH);
+
+    // col dividers
+    ctx.strokeStyle=G2; ctx.lineWidth=1;
+    for(let i=1;i<cols;i++){
+      const lx=CX+i*colW;
+      ctx.beginPath(); ctx.moveTo(lx,y+HH); ctx.lineTo(lx,y+totalCH); ctx.stroke();
+    }
+    ctx.restore();
+
+    dates.forEach((d,i)=>{
+      const cx=CX+i*colW+colW/2;
+      const day=DAYS[d.getDay()];
+
+      // day header
+      ctx.fillStyle='white'; ctx.font=`700 14px 'Poppins',sans-serif`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(day, cx, y+HH/2);
+
+      // date number
+      ctx.fillStyle='#111827'; ctx.font=`900 30px 'Poppins',sans-serif`;
+      ctx.fillText(d.getDate(), cx, y+HH+DH/2);
+
+      // X mark
+      const XCY=y+HH+DH+XH/2, XS=11;
+      ctx.strokeStyle=RED; ctx.lineWidth=4.5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(cx-XS,XCY-XS); ctx.lineTo(cx+XS,XCY+XS); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx+XS,XCY-XS); ctx.lineTo(cx-XS,XCY+XS); ctx.stroke();
+
+      // bottom day label
+      ctx.fillStyle='#6b7280'; ctx.font=`600 12px 'Poppins',sans-serif`;
+      ctx.fillText(day, cx, y+HH+DH+XH+BotH/2);
+    });
+
+    y += totalCH+18;
+  }
+
+  // ── MEDICINE NOTE ──
+  const MX=PAD, MW=W-PAD*2, MH=52;
+  const mg=ctx.createLinearGradient(MX,y,MX+MW,y+MH);
+  mg.addColorStop(0,G8); mg.addColorStop(1,G7);
+  ctx.fillStyle=mg; rr(ctx,MX,y,MW,MH,12); ctx.fill();
+
+  // pill icon
+  const PICX=MX+22, PICY=y+MH/2;
+  ctx.save(); ctx.translate(PICX,PICY); ctx.rotate(-45*Math.PI/180);
+  ctx.strokeStyle='white'; ctx.lineWidth=1.8;
+  rr(ctx,-6,-12,12,24,6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-6,0); ctx.lineTo(6,0); ctx.stroke();
+  ctx.restore();
+
+  if(medDate){
+    const mStr=fmtShort(medDate);
+    const mParts=[
+      {t:'Please collect your medicines till ', w:'600'},
+      {t:mStr, w:'900', ul:true},
+      {t:'.', w:'600'},
+    ];
+    let mtw=0;
+    mParts.forEach(p=>{ctx.font=`${p.w} 14px 'Poppins',sans-serif`;mtw+=ctx.measureText(p.t).width;});
+    let mx2=MX+(MW-mtw)/2+16;
+    ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle='white';
+    mParts.forEach(p=>{
+      ctx.font=`${p.w} 14px 'Poppins',sans-serif`;
+      ctx.fillText(p.t, mx2, y+MH/2);
+      const pw=ctx.measureText(p.t).width;
+      if(p.ul){
+        ctx.beginPath(); ctx.moveTo(mx2,y+MH/2+9); ctx.lineTo(mx2+pw,y+MH/2+9);
+        ctx.strokeStyle='white'; ctx.lineWidth=1.5; ctx.stroke();
+      }
+      mx2+=pw;
+    });
+  }
+
+  y += MH+18;
+
+  // ── RESUME BOX ──
+  const RX=PAD, RW=W-PAD*2, RH=82;
+  ctx.fillStyle='rgba(255,255,255,0.78)';
+  rr(ctx,RX,y,RW,RH,14); ctx.fill();
+  ctx.strokeStyle=G2; ctx.lineWidth=2;
+  rr(ctx,RX,y,RW,RH,14); ctx.stroke();
+
+  // building icon (clean)
+  const HIX=RX+30, HIY=y+RH/2;
+  ctx.fillStyle=G1; ctx.strokeStyle=G8; ctx.lineWidth=2;
+  rr(ctx,HIX-14,HIY-16,28,32,3); ctx.fill(); ctx.stroke();
+  // center spine
+  ctx.beginPath(); ctx.moveTo(HIX,HIY-16); ctx.lineTo(HIX,HIY+16); ctx.stroke();
+  // horizontal
+  ctx.beginPath(); ctx.moveTo(HIX-14,HIY-3); ctx.lineTo(HIX+14,HIY-3); ctx.stroke();
+  // windows
+  ctx.fillStyle=G8;
+  ctx.fillRect(HIX-11,HIY-13,6,6); ctx.fillRect(HIX+5,HIY-13,6,6);
+  ctx.fillRect(HIX-11,HIY-4,6,6);  ctx.fillRect(HIX+5,HIY-4,6,6);
+  // door
+  ctx.fillRect(HIX-4,HIY+5,8,11);
+  // ground line
+  ctx.strokeStyle=G8; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(HIX-18,HIY+16); ctx.lineTo(HIX+18,HIY+16); ctx.stroke();
+
+  if(resumeD){
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    // Track letter-spacing via manual offset is not supported natively;
+    // just use spaced text via wider font
+    ctx.fillStyle='#374151'; ctx.font=`700 11px 'Poppins',sans-serif`;
+    // simulate letter-spacing by spreading chars
+    const label='CLINIC WILL RESUME FROM';
+    ctx.fillText(label, W/2+16, y+RH/2-13);
+    ctx.fillStyle=G8; ctx.font=`900 22px 'Poppins',sans-serif`;
+    ctx.fillText(fmtResume(resumeD), W/2+16, y+RH/2+13);
+  }
+
+  y += RH+12;
+
+  // ── EXTRA NOTE ──
+  if(extra){
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle='#9ca3af'; ctx.font=`italic 500 12px 'Poppins',sans-serif`;
+    ctx.fillText(extra, W/2, y+12);
+    y += 30;
+  }
+
+  y += 6;
+
+  // ── FOOTER ──
+  const fdG=ctx.createLinearGradient(PAD,0,W-PAD,0);
+  fdG.addColorStop(0,'transparent'); fdG.addColorStop(.5,G3); fdG.addColorStop(1,'transparent');
+  ctx.fillStyle=fdG; ctx.fillRect(PAD,y,W-PAD*2,1.5);
+  y += 12;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=G7; ctx.font=`600 12px 'Poppins',sans-serif`;
+  ctx.fillText('We apologize for the inconvenience. Thank you for your understanding.', W/2, y+10);
+
+  rendering = false;
+}
+
+function setStatus(m){const e=document.getElementById('status');e.textContent=m;clearTimeout(e._t);e._t=setTimeout(()=>e.textContent='',4000)}
+
+async function downloadPNG(){
+  setStatus('⏳ Generating PNG…');
+  await render();
+  const a=document.createElement('a');
+  a.download='clinic-notice.png';
+  a.href=document.getElementById('c').toDataURL('image/png');
+  a.click();
+  setStatus('✅ PNG downloaded!');
+}
+
+async function downloadPDF(){
+  setStatus('⏳ Generating PDF…');
+  await render();
+  const canvas=document.getElementById('c');
+  const imgData=canvas.toDataURL('image/png');
+  const {jsPDF}=window.jspdf;
+  const w=canvas.width/DPR, h=canvas.height/DPR;
+  const pdf=new jsPDF({orientation:'portrait',unit:'px',format:[w,h]});
+  pdf.addImage(imgData,'PNG',0,0,w,h,undefined,'FAST');
+  pdf.save('clinic-notice.pdf');
+  setStatus('✅ PDF downloaded!');
+}
+
+document.querySelectorAll('input').forEach(el=>el.addEventListener('input',()=>{rendering=false;render();}));
+window.addEventListener('load',async()=>{await document.fonts.ready;render();});
+</script>
+</body>
+</html>
